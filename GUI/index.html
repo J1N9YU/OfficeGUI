@@ -43,7 +43,8 @@
             grid-template-columns: repeat(4, 1fr);
             gap: 5px;
             position: relative;
-            max-height: 300px;
+            /* 增大左栏高度 */
+            max-height: 80vh; 
             overflow-y: auto;
         }
 
@@ -93,6 +94,9 @@
             padding: 10px;
             margin-top: 10px;
             min-height: 200px;
+            /* 开启自动换行 */
+            white-space: pre-wrap; 
+            word-wrap: break-word;
         }
 
         textarea {

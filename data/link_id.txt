@@ -36,3 +36,8 @@ link=6
 customer=everbest
 project=AFCI
 link=7
+
+# AFCI 拉弧检测
+customer=INVT
+project=TecgCenter
+link=8

@@ -48,8 +48,9 @@ def get_link_id_data():
                 line = line.strip()
                 if line.startswith('#'):
                     add_item_to_tree()
+                    title = line[1:].lstrip()  # 去除标题前的空格
                     current_item = {
-                        'title': line[1:],
+                        'title': title,
                         'link': None,
                         'emails': [],
                         'log': ''
@@ -95,6 +96,8 @@ def get_log():
             logging.error('Title not provided in request to get log.')
             return jsonify({'error': 'Title not provided'}), 400
 
+        # 去除标题前的空格和下划线
+        title = title.lstrip(' _')
         # 确保事项名（title）是有效的文件名
         valid_title = ''.join(c if c.isalnum() or c in ['_', '-'] else '_' for c in title)
         log_file_name = f'{valid_title}_log.txt'
@@ -123,6 +126,8 @@ def save_log():
             logging.error('Title or log content not provided in request to save log.')
             return jsonify({'error': 'Title or log content not provided'}), 400
 
+        # 去除标题前的空格和下划线
+        title = title.lstrip(' _')
         # 确保事项名（title）是有效的文件名
         valid_title = ''.join(c if c.isalnum() or c in ['_', '-'] else '_' for c in title)
         log_file_name = f'{valid_title}_log.txt'
@@ -173,6 +178,16 @@ def add_new_item():
             file.write(f'link={new_link_id}\n')
             if email_title:
                 file.write(f'[{email_title}]\n')
+
+        # 创建日志文件并添加固定头部
+        # 去除标题前的空格和下划线
+        item_title = item_title.lstrip(' _')
+        valid_title = ''.join(c if c.isalnum() or c in ['_', '-'] else '_' for c in item_title)
+        log_file_name = f'{valid_title}_log.txt'
+        log_file_path = os.path.join(LOGS_DIR, log_file_name)
+        log_header = f'# {customer}_{project}_{item_title}\n客户: {customer}\n项目: {project}\n'
+        with open(log_file_path, 'w', encoding='utf-8') as log_file:
+            log_file.write(log_header)
 
         return jsonify({'message': '新条目添加成功', 'link_id': new_link_id})
     except Exception as e:
