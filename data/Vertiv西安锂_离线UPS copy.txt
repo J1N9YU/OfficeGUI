@@ -1,0 +1,6 @@
+#Vertiv西安锂10_log
+客户: Vertiv
+项目: offline UPS
+
+会议后续跟进：
+1. I型三电平封波解决方案

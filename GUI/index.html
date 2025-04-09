@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Link ID Editor</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        :root {
+            --tree-width: 40%;
+            --log-width: 60%;
+            --customer-bg-color: white;
+            --customer-border-color: #0078d4;
+            --project-bg-color: white;
+            --project-border-color: #0099e5;
+            --item-bg-color: white;
+            --item-border-color: #00b2e7;
+            --border-width: 2px;
+            --header-bg-color: #f0f0f0;
+            --header-border-color: #ccc;
+            --hover-bg-color: #e0f7fa;
+            --edit-button-width: 20px;
+        }
+
+        body {
+            display: flex;
+            font-family: Arial, sans-serif;
+            flex-direction: column;
+        }
+
+       .top-buttons {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px;
+        }
+
+       .tree-view {
+            width: var(--tree-width);
+            border-right: 1px solid #ccc;
+            padding: 10px;
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 5px;
+            position: relative;
+            /* 增大左栏高度 */
+            max-height: 80vh; 
+            overflow-y: auto;
+        }
+
+       .log-view {
+            width: var(--log-width);
+            padding: 10px;
+        }
+
+       .grid-item {
+            padding: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.9em;
+            background-color: white;
+            position: relative;
+        }
+
+       .grid-item:hover {
+            background-color: var(--hover-bg-color);
+        }
+
+       .customer {
+            background-color: var(--customer-bg-color);
+            border: var(--border-width) solid var(--customer-border-color);
+        }
+
+       .project {
+            background-color: var(--project-bg-color);
+            border: var(--border-width) solid var(--project-border-color);
+        }
+
+       .item {
+            background-color: var(--item-bg-color);
+            border: var(--border-width) solid var(--item-border-color);
+            cursor: pointer;
+        }
+
+       .header {
+            background-color: var(--header-bg-color);
+            border: var(--border-width) solid var(--header-border-color);
+            font-weight: bold;
+        }
+
+       .log-preview {
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin-top: 10px;
+            min-height: 200px;
+            /* 开启自动换行 */
+            white-space: pre-wrap; 
+            word-wrap: break-word;
+        }
+
+        textarea {
+            width: 100%;
+            height: 200px;
+            resize: vertical;
+        }
+
+       .resizer {
+            width: 5px;
+            background-color: #ccc;
+            cursor: col-resize;
+        }
+
+       .loading {
+            display: none;
+            margin-top: 10px;
+        }
+
+       .add-item-form {
+            display: none;
+            position: absolute;
+            top: 60px;
+            right: 10px;
+            background-color: white;
+            border: 1px solid #ccc;
+            padding: 10px;
+            z-index: 1;
+        }
+
+       .edit-button {
+            display: none;
+            position: absolute;
+            right: 0;
+            top: 0;
+            bottom: 0;
+            width: var(--edit-button-width);
+            background-color: #f0f0f0;
+            border: none;
+            cursor: pointer;
+        }
+
+       .edit-mode .edit-button {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="top-buttons">
+        <button class="refresh-button" onclick="refreshData()">刷新数据</button>
+        <button class="add-item-button" onclick="toggleAddItemForm()">添加条目</button>
+        <button class="edit-mode-button" onclick="toggleEditMode()">切换编辑模式</button>
+    </div>
+    <div style="display: flex;">
+        <div class="tree-view" id="tree-view">
+            <div id="tree"></div>
+            <div class="loading" id="loading">加载中...</div>
+        </div>
+        <div class="resizer" id="resizer"></div>
+        <div class="log-view">
+            <h2>日志内容</h2>
+            <textarea id="log" oninput="renderMarkdown()"></textarea>
+            <div class="log-preview" id="log-preview"></div>
+            <button onclick="saveLog()">保存日志</button>
+        </div>
+    </div>
+    <div class="add-item-form" id="add-item-form">
+        <label for="customer-select">客户:</label>
+        <select id="customer-select" onchange="updateProjectOptions()"></select>
+        <br>
+        <label for="project-select">项目:</label>
+        <select id="project-select"></select>
+        <input type="text" id="new-project-input" placeholder="新增项目名称" style="display: none;">
+        <br>
+        <label for="item-title-input">事项名称:</label>
+        <input type="text" id="item-title-input" required>
+        <br>
+        <label for="email-title-input">邮件标题:</label>
+        <input type="text" id="email-title-input">
+        <br>
+        <button onclick="addNewItem()">确认</button>
+        <button onclick="toggleAddItemForm()">取消</button>
+    </div>
+
+    <script>
+        const treeElement = document.getElementById('tree');
+        const logElement = document.getElementById('log');
+        const logPreview = document.getElementById('log-preview');
+        const resizer = document.getElementById('resizer');
+        const loadingElement = document.getElementById('loading');
+        const addItemForm = document.getElementById('add-item-form');
+        const customerSelect = document.getElementById('customer-select');
+        const projectSelect = document.getElementById('project-select');
+        const newProjectInput = document.getElementById('new-project-input');
+        const itemTitleInput = document.getElementById('item-title-input');
+        const emailTitleInput = document.getElementById('email-title-input');
+        const treeView = document.getElementById('tree-view');
+        let isDragging = false;
+        let data;
+        let isEditMode = false;
+
+        resizer.addEventListener('mousedown', function (e) {
+            isDragging = true;
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        });
+
+        function onMouseMove(e) {
+            if (isDragging) {
+                const newTreeWidth = e.clientX / window.innerWidth * 100;
+                const newLogWidth = 100 - newTreeWidth;
+                document.documentElement.style.setProperty('--tree-width', newTreeWidth + '%');
+                document.documentElement.style.setProperty('--log-width', newLogWidth + '%');
+            }
+        }
+
+        function onMouseUp() {
+            isDragging = false;
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        }
+
+        function renderTree(data) {
+            const gridContainer = document.querySelector('.tree-view');
+            gridContainer.innerHTML = '';
+
+            // 创建表头
+            const headers = ['客户', '项目', '事项', '追踪'];
+            headers.forEach((text, index) => {
+                const headerDiv = document.createElement('div');
+                headerDiv.classList.add('grid-item', 'header');
+                headerDiv.textContent = text;
+                headerDiv.style.gridColumn = `${index + 1}`;
+                headerDiv.style.gridRow = 1;
+                gridContainer.appendChild(headerDiv);
+            });
+
+            let currentRow = 2;
+            for (const customer in data) {
+                const customerDiv = document.createElement('div');
+                customerDiv.classList.add('grid-item', 'customer');
+                customerDiv.textContent = customer;
+                let totalItems = 0;
+                for (const project in data[customer]) {
+                    totalItems += data[customer][project].length;
+                }
+                customerDiv.style.gridColumn = 1;
+                customerDiv.style.gridRow = `${currentRow}/${currentRow + totalItems}`;
+                gridContainer.appendChild(customerDiv);
+
+                const customerEditButton = document.createElement('button');
+                customerEditButton.classList.add('edit-button');
+                customerEditButton.textContent = '+';
+                customerEditButton.addEventListener('click', () => addProjectAndItem(customer));
+                customerDiv.appendChild(customerEditButton);
+
+                for (const project in data[customer]) {
+                    const projectDiv = document.createElement('div');
+                    projectDiv.classList.add('grid-item', 'project');
+                    projectDiv.textContent = project;
+                    const itemCount = data[customer][project].length;
+                    projectDiv.style.gridColumn = 2;
+                    projectDiv.style.gridRow = `${currentRow}/${currentRow + itemCount}`;
+                    gridContainer.appendChild(projectDiv);
+
+                    const projectEditButton = document.createElement('button');
+                    projectEditButton.classList.add('edit-button');
+                    projectEditButton.textContent = '+';
+                    projectEditButton.addEventListener('click', () => addItem(customer, project));
+                    projectDiv.appendChild(projectEditButton);
+
+                    for (const item of data[customer][project]) {
+                        const itemDiv = document.createElement('div');
+                        itemDiv.classList.add('grid-item', 'item');
+                        itemDiv.textContent = item.title;
+                        itemDiv.dataset.title = item.title;
+                        itemDiv.onclick = () => loadLog(item.title);
+                        itemDiv.style.gridColumn = 3;
+                        itemDiv.style.gridRow = currentRow;
+                        gridContainer.appendChild(itemDiv);
+
+                        const itemEditButton = document.createElement('button');
+                        itemEditButton.classList.add('edit-button');
+                        itemEditButton.textContent = '+';
+                        itemEditButton.addEventListener('click', () => addEmailTitle(customer, project, item.title));
+                        itemDiv.appendChild(itemEditButton);
+
+                        const trackDiv = document.createElement('div');
+                        trackDiv.classList.add('grid-item');
+                        trackDiv.style.gridColumn = 4;
+                        trackDiv.style.gridRow = currentRow;
+                        gridContainer.appendChild(trackDiv);
+
+                        currentRow++;
+                    }
+                }
+            }
+        }
+
+        function addProjectAndItem(customer) {
+            const projectName = prompt('请输入项目名称');
+            if (projectName) {
+                const itemName = prompt('请输入事项名称');
+                if (itemName) {
+                    fetch('/add_new_item', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            customer: customer,
+                            project: projectName,
+                            item_title: itemName,
+                            email_title: ''
+                        })
+                    })
+                      .then(response => {
+                            if (!response.ok) {
+                                throw new Error('Network response was not ok');
+                            }
+                            return response.json();
+                        })
+                      .then(data => {
+                            if (data.message) {
+                                alert(data.message);
+                                refreshData();
+                            } else {
+                                alert('添加条目失败');
+                            }
+                        })
+                      .catch(error => {
+                            console.error('Error adding new item:', error);
+                            alert('添加条目失败');
+                        });
+                }
+            }
+        }
+
+        function addItem(customer, project) {
+            const itemName = prompt('请输入事项名称');
+            if (itemName) {
+                fetch('/add_new_item', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        customer: customer,
+                        project: project,
+                        item_title: itemName,
+                        email_title: ''
+                    })
+                })
+                  .then(response => {
+                        if (!response.ok) {
+                            throw new Error('Network response was not ok');
+                        }
+                        return response.json();
+                    })
+                  .then(data => {
+                        if (data.message) {
+                            alert(data.message);
+                            refreshData();
+                        } else {
+                            alert('添加条目失败');
+                        }
+                    })
+                  .catch(error => {
+                        console.error('Error adding new item:', error);
+                        alert('添加条目失败');
+                    });
+            }
+        }
+
+        function addEmailTitle(customer, project, itemTitle) {
+            const emailTitle = prompt('请输入邮件标题');
+            if (emailTitle) {
+                // 这里需要根据实际情况更新后端逻辑来添加邮件标题
+                // 暂时只做提示
+                alert(`将为事项 ${itemTitle} 添加邮件标题 ${emailTitle}`);
+            }
+        }
+
+        function countItems(projectData) {
+            return Object.values(projectData).reduce((total, items) => total + items.length, 0);
+        }
+
+        function loadLog(title) {
+            fetch('/get_log', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ title: title })
+            })
+              .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+              .then(data => {
+                    logElement.value = data.log;
+                    renderMarkdown();
+                    logElement.readOnly = false;
+                    logElement.dataset.title = title;
+                })
+              .catch(error => {
+                    console.error('Error loading log:', error);
+                    alert('加载日志失败');
+                });
+        }
+
+        function saveLog() {
+            const title = logElement.dataset.title;
+            const logContent = logElement.value;
+            fetch('/save_log', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ title: title, log: logContent })
+            })
+              .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+              .then(data => {
+                    if (data.message === 'Log saved successfully') {
+                        alert('日志保存成功');
+                    } else {
+                        alert('保存日志失败');
+                    }
+                })
+              .catch(error => {
+                    console.error('Error saving log:', error);
+                    alert('保存日志失败');
+                });
+        }
+
+        function refreshData() {
+            loadingElement.style.display = 'block';
+            fetch('/get_link_id_data')
+              .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+              .then(responseData => {
+                    loadingElement.style.display = 'none';
+                    data = responseData.data;
+                    if (data) {
+                        renderTree(data);
+                        populateCustomerOptions(data);
+                    }
+                })
+              .catch(error => {
+                    loadingElement.style.display = 'none';
+                    console.error('Error fetching data:', error);
+                    alert('获取数据失败');
+                });
+        }
+
+        function toggleAddItemForm() {
+            if (addItemForm.style.display === 'none') {
+                addItemForm.style.display = 'block';
+            } else {
+                addItemForm.style.display = 'none';
+            }
+        }
+
+        function populateCustomerOptions(data) {
+            customerSelect.innerHTML = '';
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = '请选择客户';
+            customerSelect.appendChild(option);
+            for (const customer in data) {
+                const option = document.createElement('option');
+                option.value = customer;
+                option.textContent = customer;
+                customerSelect.appendChild(option);
+            }
+        }
+
+        function updateProjectOptions() {
+            const selectedCustomer = customerSelect.value;
+            projectSelect.innerHTML = '';
+            newProjectInput.style.display = 'none';
+
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = '请选择项目';
+            projectSelect.appendChild(option);
+
+            if (selectedCustomer) {
+                for (const project in data[selectedCustomer]) {
+                    const option = document.createElement('option');
+                    option.value = project;
+                    option.textContent = project;
+                    projectSelect.appendChild(option);
+                }
+                const newProjectOption = document.createElement('option');
+                newProjectOption.value = 'new-project';
+                newProjectOption.textContent = '新增项目';
+                projectSelect.appendChild(newProjectOption);
+            }
+
+            projectSelect.onchange = function () {
+                if (projectSelect.value === 'new-project') {
+                    newProjectInput.style.display = 'inline';
+                } else {
+                    newProjectInput.style.display = 'none';
+                }
+            };
+        }
+
+        function addNewItem() {
+            const customer = customerSelect.value;
+            let project = projectSelect.value;
+            if (project === 'new-project') {
+                project = newProjectInput.value;
+                if (!project) {
+                    alert('请输入新项目名称');
+                    return;
+                }
+            }
+            const itemTitle = itemTitleInput.value;
+            const emailTitle = emailTitleInput.value;
+
+            if (!customer || !project || !itemTitle) {
+                alert('客户、项目和事项名称为必填项');
+                return;
+            }
+
+            fetch('/add_new_item', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    customer: customer,
+                    project: project,
+                    item_title: itemTitle,
+                    email_title: emailTitle
+                })
+            })
+              .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+              .then(data => {
+                    if (data.message) {
+                        alert(data.message);
+                        toggleAddItemForm();
+                        refreshData();
+                    } else {
+                        alert('添加条目失败');
+                    }
+                })
+              .catch(error => {
+                    console.error('Error adding new item:', error);
+                    alert('添加条目失败');
+                });
+        }
+
+        function renderMarkdown() {
+            const markdownText = logElement.value;
+            const html = marked.parse(markdownText);
+            logPreview.innerHTML = html;
+        }
+
+        function toggleEditMode() {
+            isEditMode = !isEditMode;
+            if (isEditMode) {
+                treeView.classList.add('edit-mode');
+            } else {
+                treeView.classList.remove('edit-mode');
+            }
+        }
+
+        refreshData();
+    </script>
+</body>
+
+</html>    

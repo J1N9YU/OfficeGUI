@@ -1,0 +1,43 @@
+#C-GANG问题华盛昌
+customer=everbest
+project=cgang
+link=1
+[RE: C-GANG adapter not supported issue]
+
+#INVT_Traction新平台
+customer=INVT
+project=traction
+link=2
+[Re: Dinner with INVT-auto team]
+
+#Leadshine_RS232_F280025烧录问题
+customer=Leadshine
+project=openloop_stepper
+link=3
+
+#Eaton_OfflineUPS平台
+customer=Eaton
+project=offline_ups
+link=4
+[RE: Sync up on AA2 PD and MD Opportunities]
+
+#Vertiv_UPS_P65_新项目
+customer=Vertiv
+project=UPS
+link=5
+[RE: XDS200无法连接F28P65]
+
+# AM26支持
+customer=Vertiv
+project=BMS
+link=6
+
+# 联合发布会
+customer=everbest
+project=AFCI
+link=7
+
+# AFCI 拉弧检测
+customer=INVT
+project=TecgCenter
+link=8
