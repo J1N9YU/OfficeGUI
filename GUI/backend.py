@@ -8,15 +8,17 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 app = Flask(__name__)
 CORS(app)
 
-# 修改LINK_ID_FILE的路径
+# 修改 LINK_ID_FILE 的路径
 current_dir = os.path.dirname(os.path.abspath(__file__))
 LINK_ID_FILE = os.path.join(current_dir, '../data/link_id.txt')
-# 修改LOGS_DIR的路径
+# 修改 LOGS_DIR 的路径
 LOGS_DIR = os.path.join(current_dir, '../data')
+
 
 @app.route('/', methods=['GET'])
 def serve_index():
     return send_from_directory(current_dir, 'index.html')
+
 
 @app.route('/get_link_id_data', methods=['GET'])
 def get_link_id_data():
@@ -41,7 +43,8 @@ def get_link_id_data():
                     tree_data.setdefault(current_customer, {})
                     tree_data[current_customer].setdefault(current_project, [])
                     tree_data[current_customer][current_project].append(current_item)
-                    logging.debug(f'Added item {current_item["title"]} to project {current_project} of customer {current_customer}')
+                    logging.debug(
+                        f'Added item {current_item["title"]} to project {current_project} of customer {current_customer}')
                     current_item = None
 
             for line in lines:
@@ -53,7 +56,8 @@ def get_link_id_data():
                         'title': title,
                         'link': None,
                         'emails': [],
-                        'log': ''
+                        'log': '',
+                        'type': 'default'
                     }
                     logging.debug(f'Found new item: {current_item["title"]}')
                 elif line.startswith('customer='):
@@ -66,6 +70,10 @@ def get_link_id_data():
                     if current_item:
                         current_item['link'] = line.split('=')[1]
                         logging.debug(f'Assigning link {current_item["link"]} to item {current_item["title"]}')
+                elif line.startswith('type='):
+                    if current_item:
+                        current_item['type'] = line.split('=')[1]
+                        logging.debug(f'Assigning type {current_item["type"]} to item {current_item["title"]}')
                 elif line.startswith('[') and line.endswith(']'):
                     if current_item:
                         current_item['emails'].append(line)
@@ -80,12 +88,27 @@ def get_link_id_data():
             # 输出已读取的 tree_data 用于调试
             logging.debug(f"Read tree_data: {tree_data}")
 
+            # 检查事项是否有日志文件，没有则生成
+            for customer in tree_data:
+                for project in tree_data[customer]:
+                    for item in tree_data[customer][project]:
+                        title = item['title'].lstrip(' _')
+                        valid_title = ''.join(c if c.isalnum() or c in ['_', '-'] else '_' for c in title)
+                        log_file_name = f'{valid_title}_log.txt'
+                        log_file_path = os.path.join(LOGS_DIR, log_file_name)
+                        if not os.path.exists(log_file_path):
+                            log_header = generate_log_header(customer, project, item)
+                            with open(log_file_path, 'w', encoding='utf-8') as log_file:
+                                log_file.write(log_header)
+                            logging.debug(f'Generated log file for {title} at {log_file_path}')
+
         return jsonify({'data': tree_data})
     except Exception as e:
         logging.error(f"Error in get_link_id_data: {e}", exc_info=True)
         # 输出已读取的 tree_data 用于调试
         logging.debug(f"Read tree_data before error: {tree_data}")
         return jsonify({'error': str(e), 'partial_data': tree_data}), 500
+
 
 @app.route('/get_log', methods=['POST'])
 def get_log():
@@ -116,12 +139,15 @@ def get_log():
         logging.error(f"Error in get_log: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
+
 @app.route('/save_log', methods=['POST'])
 def save_log():
     try:
         data = request.json
         title = data.get('title')
         log_content = data.get('log')
+        email_titles = data.get('email_titles', [])
+        item_type = data.get('type', 'default')
         if not title or not log_content:
             logging.error('Title or log content not provided in request to save log.')
             return jsonify({'error': 'Title or log content not provided'}), 400
@@ -133,14 +159,36 @@ def save_log():
         log_file_name = f'{valid_title}_log.txt'
         log_file_path = os.path.join(LOGS_DIR, log_file_name)
         logging.debug(f'Saving log to file: {log_file_path}')
+
+        # 解析现有日志，分离表头和正文
+        header = ''
+        body = ''
+        if os.path.exists(log_file_path):
+            with open(log_file_path, 'r', encoding='utf-8') as file:
+                lines = file.readlines()
+                header_lines = []
+                for i, line in enumerate(lines):
+                    if line.strip() == '---':
+                        body = ''.join(lines[i + 1:])
+                        break
+                    header_lines.append(line)
+                header = ''.join(header_lines)
+
+        # 更新表头中的邮件标题和类型
+        new_header = update_header_with_emails_and_type(header, email_titles, item_type)
+
+        # 写入新的日志内容
         with open(log_file_path, 'w', encoding='utf-8') as file:
-            file.write(log_content)
+            file.write(new_header)
+            file.write('---\n')
+            file.write(body)
             logging.debug(f'Successfully saved log to {log_file_path}')
 
         return jsonify({'message': 'Log saved successfully'})
     except Exception as e:
         logging.error(f"Error in save_log: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
+
 
 @app.route('/add_new_item', methods=['POST'])
 def add_new_item():
@@ -150,11 +198,12 @@ def add_new_item():
         project = data.get('project')
         item_title = data.get('item_title')
         email_title = data.get('email_title')
+        item_type = data.get('type', 'default')
 
         if not customer or not project or not item_title:
             return jsonify({'error': '客户、项目和事项名称为必填项'}), 400
 
-        # 读取现有文件获取最大link_id
+        # 读取现有文件获取最大 link_id
         max_link_id = 0
         if os.path.exists(LINK_ID_FILE):
             with open(LINK_ID_FILE, 'r', encoding='utf-8') as file:
@@ -176,6 +225,7 @@ def add_new_item():
             file.write(f'customer={customer}\n')
             file.write(f'project={project}\n')
             file.write(f'link={new_link_id}\n')
+            file.write(f'type={item_type}\n')
             if email_title:
                 file.write(f'[{email_title}]\n')
 
@@ -185,7 +235,12 @@ def add_new_item():
         valid_title = ''.join(c if c.isalnum() or c in ['_', '-'] else '_' for c in item_title)
         log_file_name = f'{valid_title}_log.txt'
         log_file_path = os.path.join(LOGS_DIR, log_file_name)
-        log_header = f'# {customer}_{project}_{item_title}\n客户: {customer}\n项目: {project}\n'
+        log_header = generate_log_header(customer, project, {
+            'title': item_title,
+            'link': new_link_id,
+            'emails': [f'[{email_title}]'] if email_title else [],
+            'type': item_type
+        })
         with open(log_file_path, 'w', encoding='utf-8') as log_file:
             log_file.write(log_header)
 
@@ -195,5 +250,43 @@ def add_new_item():
         return jsonify({'error': str(e)}), 500
 
 
+def generate_log_header(customer, project, item):
+    title = item['title']
+    link = item['link']
+    emails = item['emails']
+    item_type = item['type']
+    header = f'# {customer}_{project}_{title}\n客户: {customer}\n项目: {project}\n类型: {item_type}\n链接: {link}\n'
+    for email in emails:
+        header += f'{email}\n'
+    header += '---\n'
+    return header
+
+
+def update_header_with_emails_and_type(header, email_titles, item_type):
+    lines = header.splitlines()
+    new_lines = []
+    email_started = False
+    type_updated = False
+    for line in lines:
+        if line.startswith('[') and line.endswith(']'):
+            if not email_started:
+                email_started = True
+            continue
+        if line.startswith('类型:'):
+            new_lines.append(f'类型: {item_type}')
+            type_updated = True
+            continue
+        if line.strip() == '---':
+            if not type_updated:
+                new_lines.append(f'类型: {item_type}')
+            for email_title in email_titles:
+                new_lines.append(f'[{email_title}]')
+            new_lines.append(line)
+            break
+        new_lines.append(line)
+    return '\n'.join(new_lines)
+
+
 if __name__ == '__main__':
-    app.run(debug=True, port=5500)    
+    app.run(debug=True, port=5500)
+  

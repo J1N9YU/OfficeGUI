@@ -43,9 +43,11 @@
             grid-template-columns: repeat(4, 1fr);
             gap: 5px;
             position: relative;
-            /* 增大左栏高度 */
-            max-height: 80vh; 
+            /* 固定左栏高度 */
+            height: 80vh;
             overflow-y: auto;
+            /* 固定左栏宽度调整逻辑 */
+            flex-shrink: 0;
         }
 
        .log-view {
@@ -95,7 +97,7 @@
             margin-top: 10px;
             min-height: 200px;
             /* 开启自动换行 */
-            white-space: pre-wrap; 
+            white-space: pre-wrap;
             word-wrap: break-word;
         }
 
@@ -142,6 +144,16 @@
        .edit-mode .edit-button {
             display: block;
         }
+
+       .log-header-editor {
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+
+       .email-title {
+            margin-right: 5px;
+        }
     </style>
 </head>
 
@@ -158,6 +170,11 @@
         </div>
         <div class="resizer" id="resizer"></div>
         <div class="log-view">
+            <h2 id="log-header-title">日志表头 - 客户 - 项目 - 事项 - 追踪</h2>
+            <div class="log-header-editor" id="log-header-editor">
+                <div id="email-titles-container"></div>
+                <button onclick="addNewEmailTitle()">添加新邮件标题</button>
+            </div>
             <h2>日志内容</h2>
             <textarea id="log" oninput="renderMarkdown()"></textarea>
             <div class="log-preview" id="log-preview"></div>
@@ -195,9 +212,14 @@
         const itemTitleInput = document.getElementById('item-title-input');
         const emailTitleInput = document.getElementById('email-title-input');
         const treeView = document.getElementById('tree-view');
+        const logHeaderEditor = document.getElementById('log-header-editor');
+        const emailTitlesContainer = document.getElementById('email-titles-container');
+        const logHeaderTitle = document.getElementById('log-header-title');
         let isDragging = false;
         let data;
         let isEditMode = false;
+        let currentItemTitle;
+        let currentEmailTitles = [];
 
         resizer.addEventListener('mousedown', function (e) {
             isDragging = true;
@@ -274,7 +296,7 @@
                         itemDiv.classList.add('grid-item', 'item');
                         itemDiv.textContent = item.title;
                         itemDiv.dataset.title = item.title;
-                        itemDiv.onclick = () => loadLog(item.title);
+                        itemDiv.onclick = () => loadLog(item.title, item.emails);
                         itemDiv.style.gridColumn = 3;
                         itemDiv.style.gridRow = currentRow;
                         gridContainer.appendChild(itemDiv);
@@ -385,7 +407,17 @@
             return Object.values(projectData).reduce((total, items) => total + items.length, 0);
         }
 
-        function loadLog(title) {
+        function loadLog(title, emails) {
+            currentItemTitle = title;
+            currentEmailTitles = emails.map(email => email.slice(1, -1));
+            emailTitlesContainer.innerHTML = '';
+            currentEmailTitles.forEach(emailTitle => {
+                const span = document.createElement('span');
+                span.classList.add('email-title');
+                span.textContent = emailTitle;
+                emailTitlesContainer.appendChild(span);
+            });
+
             fetch('/get_log', {
                 method: 'POST',
                 headers: {
@@ -400,7 +432,10 @@
                     return response.json();
                 })
               .then(data => {
-                    logElement.value = data.log;
+                    const logContent = data.log;
+                    const parts = logContent.split('---');
+                    const body = parts.length > 1 ? parts[1].trim() : '';
+                    logElement.value = body;
                     renderMarkdown();
                     logElement.readOnly = false;
                     logElement.dataset.title = title;
@@ -414,12 +449,13 @@
         function saveLog() {
             const title = logElement.dataset.title;
             const logContent = logElement.value;
+            const emailTitles = Array.from(emailTitlesContainer.children).map(span => span.textContent);
             fetch('/save_log', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ title: title, log: logContent })
+                body: JSON.stringify({ title: title, log: logContent, email_titles: emailTitles })
             })
               .then(response => {
                     if (!response.ok) {
@@ -581,6 +617,17 @@
                 treeView.classList.add('edit-mode');
             } else {
                 treeView.classList.remove('edit-mode');
+            }
+        }
+
+        function addNewEmailTitle() {
+            const newEmailTitle = prompt('请输入新的邮件标题');
+            if (newEmailTitle) {
+                currentEmailTitles.push(newEmailTitle);
+                const span = document.createElement('span');
+                span.classList.add('email-title');
+                span.textContent = newEmailTitle;
+                emailTitlesContainer.appendChild(span);
             }
         }
 
